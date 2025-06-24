@@ -5,16 +5,14 @@ import argparse
 import logging
 from pathlib import Path
 
-
-import matplotlib.pyplot    as pl
+import matplotlib.pyplot    as plt
 import numpy                as np
 
 import torch
 from torchvision    import transforms
 
 import rasterio
-from archs.unet import PaddedUNet as UCNet
-from archs.unet import DeepPaddedUNet as DeepUCNet
+from unet import DeepPaddedUNet
 
 import cmutils
 import cmutils.pytorch as cmtorch
@@ -29,9 +27,6 @@ if __name__ == "__main__":
 
     parser.add_argument('flightline',       help="Filepaths to flightline ENVI IMG.",
                                             type=str)
-    parser.add_argument('--norm',           choices=["UNIT"],
-                                            default="UNIT",
-                                            help="Normalization method for preprocessing")
     parser.add_argument('--norm-max',       type=float,
                                             help="Max value for UNIT+CENTER normalization",
                                             default=4000.0)    
@@ -47,9 +42,6 @@ if __name__ == "__main__":
                                             default=1.0,
                                             type=float)
     parser.add_argument('--weights', '-w',  help="Weight file to use for prediction.")
-    parser.add_argument('--arch', '-a',     help="Arch to use for prediction.",
-                                            choices=["UCNet", "DeepUCNet"],
-                                            default='DeepUCNet')
     parser.add_argument('--pool',           help="Does model use max or average pooling?",
                                             choices=["max", "average"],
                                             default='max')
@@ -68,21 +60,17 @@ if __name__ == "__main__":
     # SETUP ####################################################################
 
     # Set up output directories and files
-    #expname = f"UCNetpred_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{args.norm}"
 
-    #outdir = op.join(args.outroot, expname)
     outdir = op.join(args.outroot, op.split(op.splitext(args.weights)[0])[1])
-    #cmutils.check_mkdir(args.outroot)
     cmutils.check_mkdir(outdir)
 
-    outf = op.join(outdir,f"{Path(args.flightline).stem}_ucnetsaliency.img")
+    outf = op.join(outdir,f"{Path(args.flightline).stem}_ucnetsaliency.tif")
     figf = op.join(outdir,f"{Path(args.flightline).stem}_ucnetsaliency.png")
 
     if op.exists(outf) and not args.clobber:
         print(f'{outf} exists, exiting')
         sys.exit(1)
 
-    # TODO: Given time, switch to tensorboard
     logging.basicConfig(
         level=logging.INFO,
         format="[%(levelname)s] %(message)s",
@@ -103,7 +91,6 @@ if __name__ == "__main__":
         logging.info(f"Model not found at {weightpath}, exiting.")
         sys.exit(1)
 
-
     logging.info("Initializing pytorch device.")
     if args.gpus == [-1]:
         # CPU
@@ -122,42 +109,31 @@ if __name__ == "__main__":
     logging.info(f"Using device: {device}")
 
 
+    logging.info("Loading model")
     unetkws = dict(in_ch=1,
                    num_classes=1,
                    upsample_pad=args.upsample_pad,
                    pool=args.pool)
-    
-    ulayer = 'up1'
-    logging.info("Loading model")
-    if args.arch == "UCNet":
-        model = UCNet(**unetkws)
-        dlayer = 'down4'
-        div = 16 #  TODO (BDB, 04/03/24): double check div=16 with full model 
-    elif args.arch == "DeepUCNet":
-        model = DeepUCNet(**unetkws)
-        dlayer = 'down5'
-        div = 32
+    model = DeepPaddedUNet(**unetkws)
     model.load_state_dict(torch.load(weightpath,map_location=device))
-
     model = model.to(device)
+    # Model's downsampling factor
+    div = 32
     
     model.eval()
 
-
     # DATA #####################################################################
 
-    if args.norm=='UNIT':
-        transform = transforms.Compose([
-            cmtorch.ClampScaleMethaneTile(ch4max=args.norm_max)
-        ])
-    else:
-        raise Exception("Only UNIT normalization available currently")
+    transform = transforms.Compose([
+        cmtorch.ClampScaleMethaneTile(ch4max=args.norm_max)
+    ])
 
     logging.info(f"Reading and preprocessing {args.flightline}")
     dataset = rasterio.open(args.flightline)
     cmf = dataset.read(args.band)
     msk = cmf!=-9999
     if dataset.count==4:
+        # Some flightlines have RGB included
         rgb = np.clip(dataset.read([1,2,3])/15,0,1)
         rgb = np.uint8(rgb*255).transpose([1,2,0])
         rgb = np.dstack([rgb,msk*255])
@@ -169,6 +145,7 @@ if __name__ == "__main__":
     logging.info(f'CMF original (min,max): {cmf[msk].min(),cmf.max()}')
 
     #  TODO (BDB, 04/03/24): infer receptive field dims instead of hard coding it! 
+    # Padding to handle model receptive field
     dim = 256
 
     tdiv = dim//div
@@ -192,11 +169,13 @@ if __name__ == "__main__":
         sal = model(x)
         sal = torch.nn.functional.sigmoid(sal)
         sal = sal.cpu().detach().numpy().squeeze()
-        
+
+    # Undoing padding        
     sal = sal[pad_ax0[0]:-pad_ax0[1],pad_ax1[0]:-pad_ax1[1]]
 
-    logging.info(f'Salience (min,max): {sal[msk].min(),sal.max()}')  
+    logging.info(f'Salience (min,max): {sal[msk].min(),sal.max()}')
 
+    # Re-apply NODATA mask
     sal[~msk] = -9999
 
     logging.info("Writing salience image")
@@ -209,31 +188,32 @@ if __name__ == "__main__":
             del profile['interleave']
 
         profile.update(
-            #driver='GTiff',compress='lzw',
+            driver='GTiff',compress='lzw',
             dtype=rasterio.float32,
             count=1
         )
-        
+
         logging.info(f"Saving to {outf}")
         with rasterio.open(outf, 'w', **profile) as dst:
             dst.write(sal.astype(rasterio.float32), 1)
 
     # CMF / SALIENCE QUICKLOOK #################################################
+
     logging.info(f"Rendering CMF + Salience quicklook")
     cmfmin = 0
     cmfmax = 1500
-    
+
     salmin = args.salmin
     salmax = args.salmax
 
-    interpolation='nearest'    
+    interpolation='nearest'
 
     salpx = sal[msk]
     pxmin,pxmax = extrema(salpx)
     if pxmax < salmin:
         salmin = pxmin
         salmin = pxmax
-    
+
     cmf[~msk | (cmf<=cmfmin)] = np.nan
     sal[~msk | (sal<salmin)] = np.nan
     nrows,ncols = cmf.shape[0],cmf.shape[1]
@@ -241,14 +221,12 @@ if __name__ == "__main__":
         rgb = rgb.transpose(1,0,2)
         cmf = cmf.T
         sal = sal.T
-        #rcen = rcen[:,[1,0]]
-    #censz = min(nrows,ncols)*0.1
 
     aspect = cmf.shape[1]/cmf.shape[0]
 
     figrows,figcols,figscale=2,1,5
     figsize=(aspect*figcols*figscale,figrows*figscale*1.05)
-    fig,ax = pl.subplots(figrows,figcols,figsize=figsize,
+    fig,ax = plt.subplots(figrows,figcols,figsize=figsize,
            	         sharex=True,sharey=True)
 
     ax[0].imshow(rgb,interpolation=interpolation)
@@ -258,17 +236,17 @@ if __name__ == "__main__":
     ax[1].imshow(rgb,interpolation=interpolation)
     ax[1].imshow(sal,vmin=salmin,vmax=salmax,cmap='RdYlBu_r',
                  interpolation=interpolation)
-    
+
 
     ax[0].set_xticks([])
     ax[0].set_yticks([])
     
-    pl.tight_layout()
-    pl.subplots_adjust(bottom=0.01,top=0.99,
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.01,top=0.99,
                        left=0.01,right=0.99,
                        hspace=0.01,wspace=0.01)
     logging.info(f"Saving quicklook to {figf}")
-    pl.savefig(figf)
-    pl.close(fig)
+    plt.savefig(figf)
+    plt.close(fig)
             
     logging.info("Done!")
