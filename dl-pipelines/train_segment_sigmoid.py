@@ -131,7 +131,7 @@ if __name__ == "__main__":
     if len(traincsv_parts) >= 2:
         trainid = traincsv_parts[-2] + '_' + Path(traincsv_parts[-1]).stem
     else:
-        trainid = traincsv_parts[-1].stem
+        trainid = Path(traincsv_parts[-1]).stem
 
     # define wandb projname
     projname  = f"{trainid}_sigmoid_unetdeep_{args.pool}pool_ch4_crop256_clsaggmax"
@@ -262,7 +262,6 @@ if __name__ == "__main__":
     # metrics/outputs to push to wandb / epoch
     log_metrics = ['ap','f1b','pre','rec']
     log_probs = ['prob_pos','prob_neg','prob_thr']
-    log_hists = ['hist_pos','hist_neg']
 
     ap_best = -np.inf
     # TRAIN ####################################################################
@@ -407,9 +406,6 @@ if __name__ == "__main__":
         for key in log_probs:
             logdata['val_probs/'+key+'_cls'] = val_cls[key]
             logdata['val_probs/'+key+'_seg'] = val_seg[key]
-        for key in log_hists:
-            logdata['val_hists/'+key+'_cls'] = val_cls[key]
-            logdata['val_hists/'+key+'_seg'] = val_seg[key]
 
         wandb.log(logdata)
 
