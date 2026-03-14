@@ -9,7 +9,8 @@ of our preprint: https://arxiv.org/abs/2505.21806
 ## Pretrained models
 
 Model weights are available at: https://doi.org/10.5281/zenodo.19014658
-Training datasets are avialable at: https://doi.org/10.5281/zenodo.19011045
+
+Training datasets are available at: https://doi.org/10.5281/zenodo.19011045
 
 ### AVIRIS-NG multicampign
 
