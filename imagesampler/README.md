@@ -3,15 +3,16 @@
 This is a script that samples tiles of methane plumes and the background from
 AVIRIS-NG, GAO, and EMIT flightlines.
 
-The original script, `imagesampler.py`, is provided for reference.
-There are missing dependencies to internal repositories that must be resolved.
-A refactoring of this script for easier use is underway.
+POC: Brian Bue, bbue@jpl.nasa.gov
 
-The algorithmic procedure is described in Section 3, page 6, paragraph 3 of our
-preprint: https://arxiv.org/abs/2505.21806
+>[!WARNING]
+> The original script, `imagesampler.py`, is provided only for algorithmic reference.
+> This script relies on several internal repositories with cross-dependencies 
+> that are too difficult to release in their entirety.
 
-The resulting tiled datasets are available at:
-https://ml.jpl.nasa.gov/datasets/opsghgml/
+The algorithmic procedure is described in our preprint: https://arxiv.org/abs/2505.21806
+
+The resulting tiled datasets are available at: https://doi.org/10.5281/zenodo.19011045
 
 Below is the original README for this script.
 

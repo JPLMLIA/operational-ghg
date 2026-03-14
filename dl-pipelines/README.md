@@ -8,7 +8,8 @@ of our preprint: https://arxiv.org/abs/2505.21806
 
 ## Pretrained models
 
-TODO: Weights will be uploaded via Zenodo due to filesize.
+Model weights are available at: https://doi.org/10.5281/zenodo.19014658
+Training datasets are avialable at: https://doi.org/10.5281/zenodo.19011045
 
 ### AVIRIS-NG multicampign
 
@@ -35,7 +36,3 @@ python predict_flightline_ucnet.py \
     --weights weights/EMIT_multitask.pt
     --pool max \
 ```
-
-## Model Training
-
-Description TBD
